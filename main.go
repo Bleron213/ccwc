@@ -14,10 +14,10 @@ func main() {
 
 	// Define map to store values
 	flags := map[string]interface{}{
-		"c": flag.String("c", "", "Count bytes in a file"),
-		"l": flag.String("l", "", "Count lines in a file"),
-		"w": flag.String("w", "", "Count words in a file"),
-		"m": flag.String("m", "", "Count characters in a file"),
+		"c": flag.Bool("c", false, "Count bytes in a file"),
+		"l": flag.Bool("l", false, "Count lines in a file"),
+		"w": flag.Bool("w", false, "Count words in a file"),
+		"m": flag.Bool("m", false, "Count characters in a file"),
 	}
 
 	flag.Parse()
@@ -26,17 +26,22 @@ func main() {
 		defaultFile := flag.Args()[0]
 
 		// Perform the default action: count bytes
-		byteCount, err := byteCounter(defaultFile)
+		reader, _ := openStdinOrFile()
+		byteCount, err := byteCounter(reader)
 		if err != nil {
 			fmt.Println("Error checking file:", err)
 			return
 		}
-		wordCount, err := wordCounter(defaultFile)
+
+		reader, _ = openStdinOrFile()
+		wordCount, err := wordCounter(reader)
 		if err != nil {
 			fmt.Println("Error checking file:", err)
 			return
 		}
-		lineCount, err := lineCounter(defaultFile)
+
+		reader, _ = openStdinOrFile()
+		lineCount, err := lineCounter(reader)
 		if err != nil {
 			fmt.Println("Error checking file:", err)
 			return
@@ -49,64 +54,89 @@ func main() {
 	flag.Visit(func(f *flag.Flag) {
 		switch f.Name {
 		case "c":
-			countBytesFileName := *flags["c"].(*string)
+			reader, fileName := openStdinOrFile()
 
-			if countBytesFileName == "" {
+			countBytesFileName := *flags["c"].(*bool)
+
+			if !countBytesFileName {
 				fmt.Println("Please provide a Command")
 				flag.Usage()
 				return
 			}
 
-			byteCount, err := byteCounter(countBytesFileName)
+			byteCount, err := byteCounter(reader)
 			if err != nil {
 				panic(err)
 			}
-			fmt.Printf("%s %d", countBytesFileName, byteCount)
+
+			if fileName != "" {
+				fmt.Printf("%s %d", fileName, byteCount)
+			} else {
+				fmt.Printf("%d", byteCount)
+			}
 		case "l":
-			numberOfLinesFile := *flags["l"].(*string)
+			reader, fileName := openStdinOrFile()
+			numberOfLinesFile := *flags["l"].(*bool)
 
-			if numberOfLinesFile == "" {
+			if !numberOfLinesFile {
 				fmt.Println("Please provide a Command")
 				flag.Usage()
 				return
 			}
 
-			linesNumber, err := lineCounter(numberOfLinesFile)
+			linesNumber, err := lineCounter(reader)
 			if err != nil {
 				panic(err)
 			}
 
-			fmt.Printf("%s %d", numberOfLinesFile, linesNumber)
+			if fileName != "" {
+				fmt.Printf("%s %d", fileName, linesNumber)
+			} else {
+				fmt.Printf("%d", linesNumber)
+			}
 		case "w":
-			numberOfWordsFile := *flags["w"].(*string)
+			reader, fileName := openStdinOrFile()
 
-			if numberOfWordsFile == "" {
+			numberOfWordsFile := *flags["w"].(*bool)
+
+			if !numberOfWordsFile {
 				fmt.Println("Please provide a Command")
 				flag.Usage()
 				return
 			}
 
-			wordCount, err := wordCounter(numberOfWordsFile)
+			wordCount, err := wordCounter(reader)
 			if err != nil {
 				panic(err)
 			}
 
-			fmt.Printf("%s %d", numberOfWordsFile, wordCount)
+			if fileName != "" {
+				fmt.Printf("%s %d", fileName, wordCount)
+			} else {
+				fmt.Printf("%d", wordCount)
+			}
+
 		case "m":
-			numberOfCharactersFile := *flags["m"].(*string)
+			reader, fileName := openStdinOrFile()
 
-			if numberOfCharactersFile == "" {
+			numberOfCharactersFile := *flags["m"].(*bool)
+
+			if !numberOfCharactersFile {
 				fmt.Println("Please provide a Command")
 				flag.Usage()
 				return
 			}
 
-			characterCount, err := characterCounter(numberOfCharactersFile)
+			characterCount, err := characterCounter(reader)
 			if err != nil {
 				panic(err)
 			}
 
-			fmt.Printf("%s %d", numberOfCharactersFile, characterCount)
+			if fileName != "" {
+				fmt.Printf("%s %d", fileName, characterCount)
+			} else {
+				fmt.Printf("%d", characterCount)
+			}
 
 		default:
 			fmt.Printf("Unknown flag: %s\n", f.Name)
@@ -114,24 +144,27 @@ func main() {
 	})
 }
 
-func byteCounter(fileName string) (int64, error) {
-	// Check if file exists
-	fileInfo, err := os.Stat(fileName)
-	if err != nil {
-		if os.IsNotExist(err) {
-			fmt.Println("File does not exist")
-			return 0, err
-		} else {
-			fmt.Println("Error checking file:", err)
+func byteCounter(reader io.Reader) (int64, error) {
+	var totalBytes int64
+	buffer := make([]byte, 1024) // Define a buffer to hold chunks of data
+
+	for {
+		bytesRead, err := reader.Read(buffer)
+		if err != nil {
+			if err == io.EOF {
+				// End of data reached
+				break
+			}
 			return 0, err
 		}
+		totalBytes += int64(bytesRead)
 	}
 
-	return fileInfo.Size(), nil
+	return totalBytes, nil
 }
 
-func wordCounter(fileName string) (int, error) {
-	dat, err := os.ReadFile(fileName)
+func wordCounter(reader io.Reader) (int, error) {
+	dat, err := io.ReadAll(reader)
 	if err != nil {
 		return 0, err
 	}
@@ -141,33 +174,24 @@ func wordCounter(fileName string) (int, error) {
 	return len(words), nil
 }
 
-func characterCounter(fileName string) (int, error) {
-	dat, err := os.ReadFile(fileName)
+func characterCounter(reader io.Reader) (int, error) {
+	dat, err := io.ReadAll(reader)
 	if err != nil {
 		return 0, err
 	}
-
 	characters := utf8.RuneCountInString(string(dat))
 
 	return characters, nil
 }
 
-func lineCounter(numberOfLinesFile string) (int, error) {
-
-	f, err := os.Open(numberOfLinesFile)
-	if err != nil {
-		panic(err)
-	}
-	defer f.Close()
-	var r io.Reader
-	r = f
+func lineCounter(reader io.Reader) (int, error) {
 
 	buf := make([]byte, 32*1024)
 	count := 0
 	lineSep := []byte{'\n'}
 
 	for {
-		c, err := r.Read(buf)
+		c, err := reader.Read(buf)
 		count += bytes.Count(buf[:c], lineSep)
 
 		switch {
@@ -178,4 +202,34 @@ func lineCounter(numberOfLinesFile string) (int, error) {
 			return count, err
 		}
 	}
+}
+
+func openStdinOrFile() (io.Reader, string) {
+	var err error
+	var fileName string
+	r := os.Stdin
+
+	if len(os.Args) == 3 {
+		fileName = os.Args[2]
+		if _, err := os.Stat(fileName); os.IsNotExist(err) {
+			return r, ""
+		}
+
+		r, err = os.Open(fileName)
+		if err != nil {
+			panic(err)
+		}
+	} else if len(os.Args) == 2 {
+		fileName = os.Args[1]
+
+		if _, err := os.Stat(fileName); os.IsNotExist(err) {
+			return r, ""
+		}
+
+		r, err = os.Open(fileName)
+		if err != nil {
+			panic(err)
+		}
+	}
+	return r, fileName
 }
